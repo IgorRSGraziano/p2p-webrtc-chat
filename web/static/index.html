@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC P2P Chat</title>
+</head>
+
+<body>
+    <h2>WebRTC P2P Chat</h2>
+    <br><br>
+    <input type="text" id="message" placeholder="Type a message">
+    <button id="send">Send</button>
+    <div id="chat"></div>
+
+    <script>
+        const signalingServer = new WebSocket("ws://localhost:8080/ws");
+        //TODO: Criar stun server próprio
+        const peerConnection = new RTCPeerConnection({
+            iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+        });
+
+        let dataChannel;
+
+        signalingServer.onopen = () => console.log("Connected to signaling server");
+
+        signalingServer.onmessage = async (message) => {
+            console.log("Received signaling message:", message.data);
+            const data = JSON.parse(message.data);
+
+            if (data.type === "offer") {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(JSON.parse(data.payload)));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                signalingServer.send(JSON.stringify({ type: "answer", payload: JSON.stringify(answer) }));
+            } else if (data.type === "answer") {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(JSON.parse(data.payload)));
+            } else if (data.type === "candidate") {
+                await peerConnection.addIceCandidate(new RTCIceCandidate(JSON.parse(data.payload)));
+            }
+        };
+
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                signalingServer.send(JSON.stringify({ type: "candidate", payload: JSON.stringify(event.candidate) }));
+            }
+        };
+
+        peerConnection.ondatachannel = (event) => {
+            dataChannel = event.channel;
+            dataChannel.onmessage = (msg) => {
+                console.log("Received message:", msg.data);
+                document.querySelector("#chat").innerHTML += `<p>Peer: ${msg.data}</p>`;
+            };
+            dataChannel.onopen = () => console.log("Data channel opened");
+            dataChannel.onclose = () => console.log("Data channel closed");
+        };
+
+
+        dataChannel = peerConnection.createDataChannel("chat");
+        dataChannel.onopen = () => console.log("Data channel opened");
+        dataChannel.onmessage = (msg) => {
+            console.log("Received message:", msg.data);
+            document.querySelector("#chat").innerHTML += `<p>Peer: ${msg.data}</p>`;
+        };
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        signalingServer.send(JSON.stringify({ type: "offer", payload: JSON.stringify(offer) }));
+
+
+        document.querySelector("#send").addEventListener("click", () => {
+            const message = document.querySelector("#message").value;
+            if (dataChannel && dataChannel.readyState === "open") {
+                dataChannel.send(message);
+                document.querySelector("#chat").innerHTML += `<p>You: ${message}</p>`;
+            } else {
+                console.log("Data channel is not open");
+            }
+        });
+    </script>
+</body>
+
+</html>
