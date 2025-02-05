@@ -8,6 +8,7 @@ import (
 
 func setupRoutes(r *gin.Engine) {
 	r.LoadHTMLFiles("web/static/index.html")
+	r.Static("/static", "web/static")
 	r.GET("/", func(c *gin.Context) {
 		c.HTML(200, "index.html", gin.H{})
 	})
